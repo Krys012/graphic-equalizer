@@ -1,0 +1,15 @@
+# Dossiers de build
+cmake-build-*/
+build/
+
+# Fichiers CLion
+.idea/
+
+# Fichiers macOS
+.DS_Store
+
+# Fichiers de compilation
+*.o
+*.obj
+*.exe
+*.out
