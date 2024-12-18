@@ -26,8 +26,8 @@ class MainWindow : public QMainWindow {
 public:
     explicit MainWindow(QWidget *parent = nullptr);
 
-    private slots:
-        void openFile();
+private slots:
+    void openFile();
     void playPause();
     void stop();
     void updateSpectrumDisplay();

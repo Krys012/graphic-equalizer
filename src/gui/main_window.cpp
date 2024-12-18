@@ -76,6 +76,8 @@ void MainWindow::openFile() {
 }
 
 void MainWindow::playPause() {
+    if (!audioBackend) return;
+
     if (!isPlaying) {
         audioBackend->play();
         playButton->setText("Pause");
@@ -84,6 +86,8 @@ void MainWindow::playPause() {
         playButton->setText("Play");
     }
     isPlaying = !isPlaying;
+
+    qDebug() << "État de lecture changé :" << (isPlaying ? "Playing" : "Paused");
 }
 
 void MainWindow::stop() {
@@ -94,9 +98,14 @@ void MainWindow::stop() {
 }
 
 void MainWindow::updateTime(qint64 position) {
-    int seconds = position / 44100; // Assumant 44.1kHz
+    if (!audioBackend || !audioBackend->getRawAudioBuffer())
+        return;
+
+    int sampleRate = audioBackend->getRawAudioBuffer()->sample_rate;
+    int seconds = position / sampleRate;
     int minutes = seconds / 60;
     seconds %= 60;
+
     timeLabel->setText(QString("%1:%2")
         .arg(minutes, 2, 10, QLatin1Char('0'))
         .arg(seconds, 2, 10, QLatin1Char('0')));

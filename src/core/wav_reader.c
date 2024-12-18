@@ -27,6 +27,14 @@ static int verify_wav_header(wav_header_t* header) {
     return 1;
 }
 
+static long get_file_size(FILE* file) {
+    long current_pos = ftell(file);
+    fseek(file, 0, SEEK_END);
+    long size = ftell(file);
+    fseek(file, current_pos, SEEK_SET);
+    return size;
+}
+
 audio_buffer_t* read_wav_file(const char* filename) {
     FILE* file = fopen(filename, "rb");
     if (!file) {
@@ -34,96 +42,136 @@ audio_buffer_t* read_wav_file(const char* filename) {
         return NULL;
     }
 
+    long file_size = get_file_size(file);
+    printf("Taille du fichier: %ld octets\n", file_size);
+
+    // Structure pour l'en-tête RIFF
+    struct {
+        char riff_header[4];
+        uint32_t wav_size;
+        char wave_header[4];
+    } riff_header;
+
+    // Lire l'en-tête RIFF
+    if (fread(&riff_header, sizeof(riff_header), 1, file) != 1) {
+        fclose(file);
+        return NULL;
+    }
+
+    // Vérifier l'en-tête RIFF
+    if (strncmp(riff_header.riff_header, "RIFF", 4) != 0 ||
+        strncmp(riff_header.wave_header, "WAVE", 4) != 0) {
+        fclose(file);
+        return NULL;
+    }
+
+    // Variables pour stocker le format audio
+    uint16_t audio_format = 0;
+    uint16_t num_channels = 0;
+    uint32_t sample_rate = 0;
+    uint16_t bit_depth = 0;
+    uint32_t data_size = 0;
+
+    // Lire les chunks jusqu'à trouver le chunk "data"
+    char chunk_header[4];
+    uint32_t chunk_size;
+
+    long data_position = 0;
+
+    while (fread(chunk_header, sizeof(chunk_header), 1, file) == 1) {
+        if (fread(&chunk_size, sizeof(chunk_size), 1, file) != 1) {
+            printf("Erreur de lecture de la taille du chunk\n");
+            break;
+        }
+
+        printf("Chunk trouvé: %.4s, taille: %u\n", chunk_header, chunk_size);
+
+        if (strncmp(chunk_header, "fmt ", 4) == 0) {
+            // Lire le chunk format
+            fread(&audio_format, 2, 1, file);
+            fread(&num_channels, 2, 1, file);
+            fread(&sample_rate, 4, 1, file);
+            fseek(file, 4, SEEK_CUR);  // Ignorer byte_rate
+            fseek(file, 2, SEEK_CUR);  // Ignorer block_align
+            fread(&bit_depth, 2, 1, file);
+            fseek(file, chunk_size - 16, SEEK_CUR);  // Sauter le reste du chunk
+        }
+        else if (strncmp(chunk_header, "data", 4) == 0) {
+            data_position = ftell(file);
+            if (chunk_size == 0xFFFFFFFF || chunk_size == 0) {
+                // Si la taille est invalide, calculer la taille restante du fichier
+                data_size = file_size - data_position;
+            } else {
+                data_size = chunk_size;
+            }
+            break;
+        }
+        else {
+            // Sauter les chunks inconnus
+            fseek(file, chunk_size, SEEK_CUR);
+        }
+    }
+
+    printf("Format audio: %u\n", audio_format);
+    printf("Canaux: %u\n", num_channels);
+    printf("Taux d'échantillonnage: %u\n", sample_rate);
+    printf("Bits par échantillon: %u\n", bit_depth);
+    printf("Position des données: %ld\n", data_position);
+    printf("Taille des données calculée: %u\n", data_size);
+
+    if (data_size == 0 || audio_format != 1) {
+        printf("Format audio non valide ou données introuvables\n");
+        fclose(file);
+        return NULL;
+    }
+
+    // Allouer la structure audio_buffer
     audio_buffer_t* buffer = (audio_buffer_t*)malloc(sizeof(audio_buffer_t));
     if (!buffer) {
         fclose(file);
         return NULL;
     }
 
-    wav_header_t header;
-    if (fread(&header, sizeof(wav_header_t), 1, file) != 1) {
-        printf("Erreur: Lecture de l'en-tête WAV impossible\n");
-        free(buffer);
-        fclose(file);
-        return NULL;
-    }
+    // Calculer le nombre d'échantillons
+    uint32_t bytes_per_sample = bit_depth / 8;
+    uint32_t num_samples = data_size / (bytes_per_sample * num_channels);
 
-    if (!verify_wav_header(&header)) {
-        free(buffer);
-        fclose(file);
-        return NULL;
-    }
-
-    buffer->sample_rate = header.sample_rate;
-    buffer->channels = header.num_channels;
-
-    uint32_t bytes_per_sample = header.bit_depth / 8;
-    buffer->size = header.data_bytes / bytes_per_sample;
-
-
+    // Initialiser le buffer
+    buffer->sample_rate = sample_rate;
+    buffer->channels = num_channels;
+    buffer->size = num_samples * num_channels;
     buffer->data = (float*)malloc(buffer->size * sizeof(float));
+
     if (!buffer->data) {
         free(buffer);
         fclose(file);
         return NULL;
     }
 
-    if (header.bit_depth == 16) {
-        int16_t* temp_buffer = (int16_t*)malloc(header.data_bytes);
-        if (!temp_buffer) {
+    fseek(file, data_position, SEEK_SET);
+
+    // Lire les données audio
+    if (bit_depth == 16) {
+        int16_t* temp = (int16_t*)malloc(data_size);
+        if (!temp) {
+            printf("Erreur d'allocation mémoire pour %u octets\n", data_size);
             free(buffer->data);
             free(buffer);
             fclose(file);
             return NULL;
         }
 
-        if (fread(temp_buffer, header.data_bytes, 1, file) != 1) {
-            free(temp_buffer);
-            free(buffer->data);
-            free(buffer);
-            fclose(file);
-            return NULL;
+        size_t samples_read = fread(temp, 1, data_size, file);
+        printf("Octets lus: %zu sur %u attendus\n", samples_read, data_size);
+
+        // Convertir en float
+        size_t num_samples = samples_read / sizeof(int16_t);
+        buffer->size = num_samples;
+        for (size_t i = 0; i < num_samples; i++) {
+            buffer->data[i] = temp[i] / 32768.0f;
         }
 
-        for (uint32_t i = 0; i < buffer->size; i++) {
-            buffer->data[i] = temp_buffer[i] / 32768.0f;
-        }
-
-        free(temp_buffer);
-    }
-    else if (header.bit_depth == 24) {
-        uint8_t* temp_buffer = (uint8_t*)malloc(header.data_bytes);
-        if (!temp_buffer) {
-            free(buffer->data);
-            free(buffer);
-            fclose(file);
-            return NULL;
-        }
-
-        if (fread(temp_buffer, header.data_bytes, 1, file) != 1) {
-            free(temp_buffer);
-            free(buffer->data);
-            free(buffer);
-            fclose(file);
-            return NULL;
-        }
-
-        for (uint32_t i = 0; i < buffer->size; i++) {
-            int32_t sample = (temp_buffer[i*3] << 8) |
-                            (temp_buffer[i*3 + 1] << 16) |
-                            (temp_buffer[i*3 + 2] << 24);
-            sample >>= 8; // Ajuster à 24-bit
-            buffer->data[i] = sample / 8388608.0f; // 2^23
-        }
-
-        free(temp_buffer);
-    }
-    else {
-        printf("Erreur: Profondeur de bits non supportée: %d\n", header.bit_depth);
-        free(buffer->data);
-        free(buffer);
-        fclose(file);
-        return NULL;
+        free(temp);
     }
 
     fclose(file);

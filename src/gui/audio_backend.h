@@ -29,7 +29,9 @@ protected:
 private:
     audio_buffer_t* audioData;
     qint64 position;
+    qint64 bufferSize;
     static const int CHUNK_SIZE = 2048;
+    void logBufferState() const;
 };
 
 class AudioBackend : public QObject {
@@ -43,18 +45,22 @@ public:
     void pause();
     void stop();
     void setEqualizerGains(const std::vector<float>& gains);
+    const audio_buffer_t* getRawAudioBuffer() const { return rawAudioBuffer; }
     const std::vector<float>& getSpectrum() const { return spectrumData; }
-
     signals:
         void positionChanged(qint64 position);
     void spectrumChanged();
     void durationChanged(qint64 duration);
 
-    private slots:
-        void processBuffer();
+private slots:
+    void handleStateChanged(QAudio::State state);
+    void processBuffer();
     void updateSpectrum();
 
 private:
+    QAudioDevice findAudioDevice();
+    QAudioFormat getAudioFormat();
+    void logAudioFormat(const QAudioFormat& format);
     void initializeAudio();
     void computeSpectrum();
 
