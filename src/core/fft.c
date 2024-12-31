@@ -1,6 +1,8 @@
 //
 // Created by Léo KRYS on 18/12/2024.
 //
+// Complexity : O(N log N)
+//
 
 #include "fft.h"
 #include <math.h>
