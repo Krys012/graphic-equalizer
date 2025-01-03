@@ -5,7 +5,10 @@
 #include <stdio.h>
 #include <math.h>
 #include <stdlib.h>
+#include <time.h>
 
+#define COMPLEXITY_TEST_SIZE 2048
+#define NUM_TESTS 1000
 #define PI 3.14159265358979323846
 #define TEST_SIZE 256
 
@@ -110,11 +113,69 @@ void verify_fft(cplx signal[], int size) {
     printf("Maximum error after FFT/IFFT: %.6e\n", maxError);
 }
 
+// Time complexity test
+void test_temporal_complexity() {
+    clock_t start, end;
+    double cpu_time_used;
+
+    printf("\nTime complexity test:\n");
+
+    // Test different sizes
+    for(int n = 64; n <= COMPLEXITY_TEST_SIZE; n *= 2) {
+        cplx* signal = malloc(n * sizeof(cplx));
+
+        // Signal generation
+        for(int i = 0; i < n; i++) {
+            signal[i] = rand() / (double)RAND_MAX;
+        }
+
+        // Time measurement
+        start = clock();
+        for(int iter = 0; iter < NUM_TESTS; iter++) {
+            fft(signal, n);
+        }
+        end = clock();
+
+        cpu_time_used = ((double) (end - start)) / CLOCKS_PER_SEC;
+        printf("N = %d: %f seconds (N*log(N) = %f)\n",
+               n, cpu_time_used, n * log2(n));
+
+        free(signal);
+    }
+}
+
+// Space complexity test
+void test_spatial_complexity() {
+    printf("\nSpace complexity test:\n");
+
+    for(int n = 64; n <= COMPLEXITY_TEST_SIZE; n *= 2) {
+        size_t baseline = 0;
+        size_t peak = 0;
+
+        // Initial memory measurement
+        baseline = sizeof(cplx) * n;  // Input buffer
+
+        // Peak memory measurement
+        peak = baseline +
+               2 * (sizeof(cplx) * n/2) +  // Temporary arrays
+               sizeof(cplx) * log2(n);     // Recursion stack
+
+        printf("N = %d:\n", n);
+        printf("  Baseline memory: %zu bytes\n", baseline);
+        printf("  Peak memory: %zu bytes\n", peak);
+        printf("  Ratio: %.2fx\n", (double)peak/baseline);
+    }
+}
+
 int main() {
     test_signal_1();
     test_signal_2();
     test_signal_3();
     test_signal_4();
     test_signal_5();
+
+    test_temporal_complexity();
+    test_spatial_complexity();
+
     return 0;
 }
